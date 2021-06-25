@@ -1,9 +1,17 @@
+#####################################################
+# BALL MAPPER
+# TO USE BEFORE graph_coloring.ipynb
+#####################################################
+
 setwd("~/GitHub/knotsBM_example/")
 
 library(data.table) # to read csv faster
 
-source('R/BallMapper.R')
+#source('R/BallMapper.R')
+library(Rcpp)
 sourceCpp('R/BallMapper.cpp')
+
+source('R/BallMapper_utils.R')
 
 
 #####################################################
@@ -104,9 +112,21 @@ BallMapperGroupActionCpp <- function( points , values , epsilon , orbit )
 }#BallMapperCpp
 
 # we will again use jones_13_MIRRORS but we need also this file
+# let's now consider the same dataset but this time we consider both a knot
+# and its mirror
+jones_13_MIRRORS <- fread('data/Jones_upto_13_MIRRORS.csv', sep=',', header = TRUE)
+sapply(jones_13_MIRRORS[, 1:10], class)
+
+# the table has 57 columns, the same structure as before, but twice the rows
+colors <- jones_13_MIRRORS[, 1:6]
+coeff <- jones_13_MIRRORS[, 7:57]
+# add the norm of the coefficients
+colors$norm <- wordspace::rowNorms(as.matrix(coeff))
+
+
 # this files links each point (rows in jones_13_MIRRORS) with its mirror 
 orbit <- read.csv('data/Jones_upto_13_MIRRORS_orbs.csv',header=FALSE)
-View(orbit)
+#View(orbit)
 
 # we can then compute a Symmetric BM
 # create a bm of radius epsilon, and color by the signature 
@@ -126,15 +146,32 @@ print("THE END")
 ColorIgraphPlot(jones_13_MIRRORS_SYMBM, seed=42)
 
 
+##################################################
+# Symetric data with sparse data structure
+
+BallMapperGroupActionCppSparse <- function( points , values , epsilon , orbit )
+{
+  output <- SimplifiedBallMapperCppInterfaceGroupActionAndSparseRepresentation(
+    points , values , epsilon , orbit )
+  colnames(output$vertices) = c('id','size')
+  return_list <- output
+}#BallMapperCpp
+
+print("COMPUTING SYMMETRIC BM")
+start <- Sys.time()
+jones_13_MIRRORS_SYMBM_SPARSE <- BallMapperGroupActionCppSparse(coeff, jones_13_MIRRORS$signature, epsilon, orbit)
+print("DONE")
+print(Sys.time() - start)
+
 
 
 
 
 
 #####################################################
-# We know want to exploit the symmetry of the Jones polynomials with respect to the mirroring
-# in the creation of the BM
-# We use the following procedure
+# MAPPER ON BALL MAPPER
+# TO USE BEFORE mapper_on_BM.ipynb
+#####################################################
 # JONES upto13n from Khovanov data (for mapper on BM)
 
 #For symmetric data:
