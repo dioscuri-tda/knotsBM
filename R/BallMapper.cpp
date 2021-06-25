@@ -135,6 +135,56 @@ void compute_landmarks_symmetric_point_clouds
       coverage[i].erase( std::unique( coverage[i].begin() , coverage[i].end() ) , coverage[i].end() );
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+//internal procedure
+void internal_procedure_fill_points_covered_by_landmarks
+( 
+NumericVector& numer_of_covered_points , 
+std::vector< std::vector< int > >& points_covered_by_landmarks , 
+const std::vector< size_t >& landmarks , 
+const std::vector< std::vector<size_t> >& coverage 
+)
+{
+	bool dbg = false;
+	//Now we will compute points_covered_by_landmarks. Firstly let us initialize all the structures:
+	numer_of_covered_points = NumericVector( landmarks.size() , 2 );//We initialize it to 2, as othervise we get very unbalanced balls sizes.
+	for ( size_t i = 0 ; i != coverage.size() ; ++i )
+	{
+		for ( size_t j = 0 ; j != coverage[i].size() ; ++j )
+		{
+			numer_of_covered_points[ coverage[i][j]-1 ]++;
+		}
+	}
+
+	points_covered_by_landmarks = std::vector< std::vector< int > > ( landmarks.size() );
+	for ( size_t i = 0 ; i != landmarks.size() ; ++i )
+	{
+		std::vector<int> aa;
+		aa.reserve( numer_of_covered_points[i] );
+		points_covered_by_landmarks[i] = aa;
+	}
+	//now when the variables are initialized, we can fill in the numer_of_covered_points list:
+	for ( size_t i = 0 ; i != coverage.size() ; ++i )
+	{
+		for ( size_t j = 0 ; j != coverage[i].size() ; ++j )
+		{
+			points_covered_by_landmarks[ coverage[i][j]-1 ].push_back( i+1 );
+		}
+	}
+	if (dbg) Rcerr << "points_covered_by_landmarks.size() : " << points_covered_by_landmarks.size() << endl;
+}//internal_procedure_fill_points_covered_by_landmarks
 //
 //
 //
@@ -144,6 +194,141 @@ void compute_landmarks_symmetric_point_clouds
 //
 //
 //
+void
+internal_procedure_fill_coloring
+(
+std::vector< double >& coloring , 
+const std::vector< std::vector< int > >& points_covered_by_landmarks , 
+NumericVector& values
+)
+{
+	double dbg = false;
+	coloring = std::vector< double >( points_covered_by_landmarks.size() , 0 );
+	for ( size_t i = 0 ; i != points_covered_by_landmarks.size() ; ++i )
+	{
+		double av = 0;
+		for ( size_t j = 0 ; j != points_covered_by_landmarks[i].size() ; ++j )
+		{
+			av += values[ points_covered_by_landmarks[i][j]-1 ];
+		}
+		av = av / (double)points_covered_by_landmarks[i].size();
+		coloring[i] = av;
+	}
+
+	if (dbg)
+	{
+		Rcerr << "Here is the coloring : \n";
+		for ( size_t i = 0 ; i != coloring.size() ; ++i )
+		{
+			Rcerr << coloring[i] << " , ";
+		}
+	}
+}//internal_procedure_fill_coloring
+//
+//
+//
+//
+//
+//
+//
+//
+//
+void
+internal_procedure_build_graph
+(
+std::vector< std::vector< int > >& graph_incidence_matrix,
+NumericVector& from,
+NumericVector& to,
+NumericVector& strength_of_edges,
+const std::vector< size_t >& landmarks,
+const std::vector< std::vector<size_t> > coverage
+)
+{
+  bool dbg = false;
+  graph_incidence_matrix = std::vector< std::vector< int > >( landmarks.size() );
+  for ( size_t i = 0 ; i != landmarks.size() ; ++i )
+  {
+    graph_incidence_matrix[i] = std::vector<int>( i );
+  }
+
+
+  if (dbg) Rcerr << "coverage.size() : " << coverage.size() << endl;
+
+  for ( size_t i = 0 ; i < coverage.size() ; ++i )
+  {
+    for ( size_t j = 0 ; j < coverage[i].size() ; ++j )
+    {
+      for ( size_t k = j+1 ; k < coverage[i].size() ; ++k )
+      {
+        //note that the landmarks in coverage are sorted from smallest to largest
+        //therefore we only need this:
+        //Rcerr << coverage[i][k] << " " << coverage[i][j] << endl;
+        graph_incidence_matrix[ coverage[i][k]-1 ][ coverage[i][j]-1  ]++;
+      }
+    }
+  }
+
+
+  //first let us count the number of edges in the graph:
+  int number_of_edges = 0;
+  for ( size_t i = 0 ; i != graph_incidence_matrix.size() ; ++i )
+  {
+    for ( size_t j = 0 ; j != graph_incidence_matrix[i].size() ; ++j )
+    {
+       if ( graph_incidence_matrix[i][j] != 0 )++number_of_edges;
+    }
+  }
+  if (dbg)Rcerr << "Number of edges in the graph : " << number_of_edges << endl;
+
+  from = NumericVector(number_of_edges);
+  to = NumericVector(number_of_edges);
+  strength_of_edges = NumericVector(number_of_edges);
+
+  int edg_no = 0;
+
+  for ( size_t i = 0 ; i != graph_incidence_matrix.size() ; ++i )
+  {
+    for ( size_t j = 0 ; j != graph_incidence_matrix[i].size() ; ++j )
+    {
+      if ( graph_incidence_matrix[i][j] != 0 )
+      {
+         from[edg_no] = j+1;
+         to[edg_no] = i+1;
+         strength_of_edges[edg_no] = graph_incidence_matrix[i][j];
+         ++edg_no;
+      }
+    }
+  }
+}//internal_procedure_build_graph
+//
+//
+//
+//
+//
+//
+//
+//
+//
+/*
+//For standard, not symmetric data:
+library(Rcpp)
+library(BallMapper)
+
+sourceCpp('BallMapper.cpp')
+
+pts <- as.data.frame( read.csv('circle', header=FALSE)  )
+values = pts[,1]
+
+BallMapperCpp <- function( points , values , epsilon )
+{
+  output <- BallMapperCppInterface( points , values , epsilon )
+  colnames(output$vertices) = c('id','size')
+  return_list <- output
+}#BallMapperCpp
+
+bm <- BallMapperCpp( pts,values,0.4 )
+BallMapper::ColorIgraphPlot(bm)
+*/
 // [[Rcpp::export]]
 List BallMapperCppInterface( const DataFrame& points_df, const DataFrame& values_df , double epsilon  )
 {
@@ -184,118 +369,25 @@ List BallMapperCppInterface( const DataFrame& points_df, const DataFrame& values
     }
   }
 
-  //Now we will compute points_covered_by_landmarks. Firstly let us initialize all the structures:
-  NumericVector numer_of_covered_points( landmarks.size() , 2 );//We initialize it to 2, as othervise we get very unbalanced balls sizes.
-  for ( size_t i = 0 ; i != coverage.size() ; ++i )
-  {
-    for ( size_t j = 0 ; j != coverage[i].size() ; ++j )
-    {
-      numer_of_covered_points[ coverage[i][j]-1 ]++;
-    }
-  }
-
-  std::vector< std::vector< int > > points_covered_by_landmarks( landmarks.size() );
-  for ( size_t i = 0 ; i != landmarks.size() ; ++i )
-  {
-    std::vector<int> aa;
-    aa.reserve( numer_of_covered_points[i] );
-    points_covered_by_landmarks[i] = aa;
-  }
-  //now when the variables are initialized, we can fill in the numer_of_covered_points list:
-  for ( size_t i = 0 ; i != coverage.size() ; ++i )
-  {
-    for ( size_t j = 0 ; j != coverage[i].size() ; ++j )
-    {
-      points_covered_by_landmarks[ coverage[i][j]-1 ].push_back( i+1 );
-    }
-  }
-  if (dbg) Rcerr << "points_covered_by_landmarks.size() : " << points_covered_by_landmarks.size() << endl;
-
-
-
-
-
-
-
+//change1
+  NumericVector numer_of_covered_points;
+  std::vector< std::vector< int > > points_covered_by_landmarks;
+  internal_procedure_fill_points_covered_by_landmarks( numer_of_covered_points , points_covered_by_landmarks ,  landmarks , coverage );
 
   //now let us deal with the coloring of the vertices:
-  std::vector< double > coloring( points_covered_by_landmarks.size() , 0 );
-  for ( size_t i = 0 ; i != points_covered_by_landmarks.size() ; ++i )
-  {
-     double av = 0;
-     for ( size_t j = 0 ; j != points_covered_by_landmarks[i].size() ; ++j )
-     {
-       av += values[ points_covered_by_landmarks[i][j]-1 ];
-     }
-     av = av / (double)points_covered_by_landmarks[i].size();
-     coloring[i] = av;
-  }
-
-  if (dbg)
-  {
-    Rcerr << "Here is the coloring : \n";
-    for ( size_t i = 0 ; i != coloring.size() ; ++i )
-    {
-      Rcerr << coloring[i] << " , ";
-    }
-  }
-
+  //change2
+  std::vector< double > coloring;
+  internal_procedure_fill_coloring( coloring , points_covered_by_landmarks , values ); 
+ 
+ 
   //Now let us create the graph and record the strength of each edge. To measure this, we will create the incidence matrix of the graph.
-  std::vector< std::vector< int > > graph_incidence_matrix( landmarks.size() );
-  for ( size_t i = 0 ; i != landmarks.size() ; ++i )
-  {
-    graph_incidence_matrix[i] = std::vector<int>( i );
-  }
-
-
-  if (dbg) Rcerr << "coverage.size() : " << coverage.size() << endl;
-
-  for ( size_t i = 0 ; i < coverage.size() ; ++i )
-  {
-    for ( size_t j = 0 ; j < coverage[i].size() ; ++j )
-    {
-      for ( size_t k = j+1 ; k < coverage[i].size() ; ++k )
-      {
-        //note that the landmarks in coverage are sorted from smallest to largest
-        //therefore we only need this:
-        //Rcerr << coverage[i][k] << " " << coverage[i][j] << endl;
-        graph_incidence_matrix[ coverage[i][k]-1 ][ coverage[i][j]-1  ]++;
-      }
-    }
-  }
-
-
-  //first let us count the number of edges in the graph:
-  int number_of_edges = 0;
-  for ( size_t i = 0 ; i != graph_incidence_matrix.size() ; ++i )
-  {
-    for ( size_t j = 0 ; j != graph_incidence_matrix[i].size() ; ++j )
-    {
-       if ( graph_incidence_matrix[i][j] != 0 )++number_of_edges;
-    }
-  }
-  if (dbg)Rcerr << "Number of edges in the graph : " << number_of_edges << endl;
-
-  NumericVector from(number_of_edges);
-  NumericVector to(number_of_edges);
-  NumericVector strength_of_edges(number_of_edges);
-
-  int edg_no = 0;
-
-  for ( size_t i = 0 ; i != graph_incidence_matrix.size() ; ++i )
-  {
-    for ( size_t j = 0 ; j != graph_incidence_matrix[i].size() ; ++j )
-    {
-      if ( graph_incidence_matrix[i][j] != 0 )
-      {
-         from[edg_no] = j+1;
-         to[edg_no] = i+1;
-         strength_of_edges[edg_no] = graph_incidence_matrix[i][j];
-         ++edg_no;
-      }
-    }
-  }
-
+  //change3
+  std::vector< std::vector< int > > graph_incidence_matrix;
+  NumericVector from;
+  NumericVector to;
+  NumericVector strength_of_edges;
+  internal_procedure_build_graph( graph_incidence_matrix, from, to, strength_of_edges, landmarks, coverage );
+  
   NumericVector verts( landmarks.size() );
   for ( size_t i = 0 ; i != landmarks.size() ; ++i )
   {
@@ -314,40 +406,7 @@ List BallMapperCppInterface( const DataFrame& points_df, const DataFrame& values
   //ret["numer_of_covered_points"] = numer_of_covered_points;
   return ret;
 }
-//
-//
-//
-//
-//
-//
-//
-//
-//
-std::vector< size_t > computeLandmarksForAPointCloud( const DataFrame& points_df , double epsilon  )
-{
-  bool dbg = false;
-  if ( points_df.size() == 0 )
-  {
-    cerr << "No points in the BallMapperCpp procedure, the program will now terminate";
-    throw "No points in the BallMapperCpp procedure, the program will now terminate";
-  }
 
-  std::vector< NumericVector > points( points_df.size() );
-  for ( int i = 0 ; i != points_df.size() ; ++i )
-  {
-    points[i] = points_df[i];
-  }
-  int number_of_points = points[0].size();
-  if (dbg) Rcerr << "Number of points : " << number_of_points << endl;
-
-  std::vector< std::vector<size_t> > coverage( number_of_points );
-  std::vector< size_t > landmarks;
-  landmarks.reserve( (size_t)(0.2*number_of_points) );
-
-  //here we outsource computations of landmark points:
-  compute_landmarks( points , coverage, landmarks , epsilon , number_of_points );
-  return landmarks;
-}
 //
 //
 //
@@ -524,6 +583,25 @@ std::vector< std::vector<int> > transpose_points_from_R_int_version( const DataF
 }
 
 
+/*
+library(Rcpp)
+library(BallMapper)
+
+sourceCpp('BallMapper.cpp')
+
+pts <- as.data.frame( read.csv('circle', header=FALSE)  )
+values = pts[,1]
+
+BallMapperCpp <- function( points , values , epsilon )
+{
+  output <- SimplifiedBallMapperCppInterface( points , values , epsilon )
+  colnames(output$vertices) = c('id','size')
+  return_list <- output
+}#BallMapperCpp
+
+bm <- BallMapperCpp( pts,values,0.4 )
+BallMapper::ColorIgraphPlot(bm)
+*/
 // [[Rcpp::export]]
 List SimplifiedBallMapperCppInterface( const DataFrame& points_df , const DataFrame& values_df , double epsilon  )
 {
@@ -565,114 +643,20 @@ List SimplifiedBallMapperCppInterface( const DataFrame& points_df , const DataFr
     }
   }
 
-  //Now we will compute points_covered_by_landmarks. Firstly let us initialize all the structures:
-  NumericVector numer_of_covered_points( landmarks.size() , 2 );//We initialize it to 2, as othervise we get very unbalanced balls sizes.
-  for ( size_t i = 0 ; i != coverage.size() ; ++i )
-  {
-    for ( size_t j = 0 ; j != coverage[i].size() ; ++j )
-    {
-        numer_of_covered_points[ coverage[i][j]-1 ]++;
-    }
-    //Rcerr << endl;
-  }
 
-  std::vector< std::vector< int > > points_covered_by_landmarks( landmarks.size() );
-  for ( size_t i = 0 ; i != landmarks.size() ; ++i )
-  {
-    std::vector<int> aa;
-    aa.reserve( numer_of_covered_points[i] );
-    points_covered_by_landmarks[i] = aa;
-  }
-
-  //now when the variables are initialized, we can fill in the numer_of_covered_points list:
-  for ( size_t i = 0 ; i != coverage.size() ; ++i )
-  {
-    for ( size_t j = 0 ; j != coverage[i].size() ; ++j )
-    {
-        points_covered_by_landmarks[ coverage[i][j]-1 ].push_back( i+1 );
-    }
-  }
-  if (dbg) Rcerr << "points_covered_by_landmarks.size() : " << points_covered_by_landmarks.size() << endl;
-
+  NumericVector numer_of_covered_points;
+  std::vector< std::vector< int > > points_covered_by_landmarks;
+  internal_procedure_fill_points_covered_by_landmarks( numer_of_covered_points , points_covered_by_landmarks , landmarks , coverage );
 
   //now let us deal with the coloring of the vertices:
-  std::vector< double > coloring( points_covered_by_landmarks.size() , 0 );
-  for ( size_t i = 0 ; i != points_covered_by_landmarks.size() ; ++i )
-  {
-     double av = 0;
-     for ( size_t j = 0 ; j != points_covered_by_landmarks[i].size() ; ++j )
-     {
-       av += values[ points_covered_by_landmarks[i][j]-1 ];
-     }
-     av = av / (double)points_covered_by_landmarks[i].size();
-     coloring[i] = av;
-  }
+  std::vector< double > coloring;
+  internal_procedure_fill_coloring( coloring , points_covered_by_landmarks , values ); 
 
-  if (dbg)
-  {
-    Rcerr << "Here is the coloring : \n";
-    for ( size_t i = 0 ; i != coloring.size() ; ++i )
-    {
-      Rcerr << coloring[i] << " , ";
-    }
-  }
-
-  //Now let us create the graph and record the strength of each edge. To measure this, we will create the incidence matrix of the graph.
-  std::vector< std::vector< int > > graph_incidence_matrix( landmarks.size() );
-  for ( size_t i = 0 ; i != landmarks.size() ; ++i )
-  {
-    graph_incidence_matrix[i] = std::vector<int>( i );
-  }
-
-
-  if (dbg) Rcerr << "coverage.size() : " << coverage.size() << endl;
-
-  for ( size_t i = 0 ; i < coverage.size() ; ++i )
-  {
-    for ( size_t j = 0 ; j < coverage[i].size() ; ++j )
-    {
-      for ( size_t k = j+1 ; k < coverage[i].size() ; ++k )
-      {
-        //note that the landmarks in coverage are sorted from smallest to largest
-        //therefore we only need this:
-        //Rcerr << coverage[i][k] << " " << coverage[i][j] << endl;
-        graph_incidence_matrix[ coverage[i][k]-1 ][ coverage[i][j]-1  ]++;
-      }
-    }
-  }
-
-
-  //first let us count the number of edges in the graph:
-  int number_of_edges = 0;
-  for ( size_t i = 0 ; i != graph_incidence_matrix.size() ; ++i )
-  {
-    for ( size_t j = 0 ; j != graph_incidence_matrix[i].size() ; ++j )
-    {
-       if ( graph_incidence_matrix[i][j] != 0 )++number_of_edges;
-    }
-  }
-  if (dbg)Rcerr << "Number of edges in the graph : " << number_of_edges << endl;
-
-  NumericVector from(number_of_edges);
-  NumericVector to(number_of_edges);
-  NumericVector strength_of_edges(number_of_edges);
-
-  int edg_no = 0;
-
-  for ( size_t i = 0 ; i != graph_incidence_matrix.size() ; ++i )
-  {
-    for ( size_t j = 0 ; j != graph_incidence_matrix[i].size() ; ++j )
-    {
-      if ( graph_incidence_matrix[i][j] != 0 )
-      {
-         from[edg_no] = j+1;
-         to[edg_no] = i+1;
-         strength_of_edges[edg_no] = graph_incidence_matrix[i][j];
-         ++edg_no;
-
-      }
-    }
-  }
+  std::vector< std::vector< int > > graph_incidence_matrix;
+  NumericVector from;
+  NumericVector to;
+  NumericVector strength_of_edges;
+  internal_procedure_build_graph( graph_incidence_matrix, from, to, strength_of_edges, landmarks, coverage );
 
   NumericVector verts( landmarks.size() );
   for ( size_t i = 0 ; i != landmarks.size() ; ++i )
@@ -808,7 +792,28 @@ BallMapperLandCpp <- function( points , landmarks , values , epsilon )
 }#BallMapperLandCpp
 
 BallMapperLandCpp( pts,lands,values,0.4 )
+*/
+/*
+library(Rcpp)
+library(BallMapper)
 
+sourceCpp('BallMapper.cpp')
+
+pts <- as.data.frame( read.csv('circle', header=FALSE)  )
+values = pts[,1]
+
+BallMapperCpp <- function( points , values , epsilon )
+{
+  aa <- compute_landmark_indices(pts,0.4)
+  aa = t(aa)
+  lands <- pts[aa,]
+  output <- SimplifiedBallMapperCppInterfaceBasedOnLands( points , values , lands , epsilon )
+  colnames(output$vertices) = c('id','size')
+  return_list <- output
+}#BallMapperCpp
+
+bm <- BallMapperCpp( pts,values,0.4 )
+BallMapper::ColorIgraphPlot(bm)
 */
 // [[Rcpp::export]]
 List SimplifiedBallMapperCppInterfaceBasedOnLands
@@ -848,6 +853,7 @@ List SimplifiedBallMapperCppInterfaceBasedOnLands
           }
       }
   }
+  
 
   //Now we will compute points_covered_by_landmarks. Firstly let us initialize all the structures:
   NumericVector numer_of_covered_points( landmarks.size() , 2 );//We initialize it to 2, as othervise we get very unbalanced balls sizes.
@@ -879,27 +885,8 @@ List SimplifiedBallMapperCppInterfaceBasedOnLands
   if (dbg) Rcerr << "points_covered_by_landmarks.size() : " << points_covered_by_landmarks.size() << endl;
 
 
-  //now let us deal with the coloring of the vertices:
-  std::vector< double > coloring( points_covered_by_landmarks.size() , 0 );
-  for ( size_t i = 0 ; i != points_covered_by_landmarks.size() ; ++i )
-  {
-     double av = 0;
-     for ( size_t j = 0 ; j != points_covered_by_landmarks[i].size() ; ++j )
-     {
-       av += values[ points_covered_by_landmarks[i][j]-1 ];
-     }
-     av = av / (double)points_covered_by_landmarks[i].size();
-     coloring[i] = av;
-  }
-
-  if (dbg)
-  {
-    Rcerr << "Here is the coloring : \n";
-    for ( size_t i = 0 ; i != coloring.size() ; ++i )
-    {
-      Rcerr << coloring[i] << " , ";
-    }
-  }
+  std::vector< double > coloring;
+  internal_procedure_fill_coloring( coloring , points_covered_by_landmarks , values ); 
 
   //Now let us create the graph and record the strength of each edge. To measure this, we will create the incidence matrix of the graph.
   std::vector< std::vector< int > > graph_incidence_matrix( landmarks.size() );
@@ -957,6 +944,7 @@ List SimplifiedBallMapperCppInterfaceBasedOnLands
       }
     }
   }
+  
 
   NumericVector verts( landmarks.size() );
   for ( size_t i = 0 ; i != landmarks.size() ; ++i )
@@ -975,7 +963,7 @@ List SimplifiedBallMapperCppInterfaceBasedOnLands
   return ret;
 
 return 1;
-}
+}//SimplifiedBallMapperCppInterfaceBasedOnLands
 
 
 
@@ -1003,6 +991,7 @@ BallMapperGroupActionCpp <- function( points , values , epsilon , orbit )
 }#BallMapperCpp
 
 bm <- BallMapperGroupActionCpp( points , values , epsilon , orbit )
+BallMapper::ColorIgraphPlot(bm)
 */
 
 // [[Rcpp::export]]
@@ -1053,114 +1042,337 @@ List SimplifiedBallMapperCppInterfaceGroupAction( const DataFrame& points_df , c
     }
   }
 
-  //Now we will compute points_covered_by_landmarks. Firstly let us initialize all the structures:
-  NumericVector numer_of_covered_points( landmarks.size() , 2 );//We initialize it to 2, as othervise we get very unbalanced balls sizes.
-  for ( size_t i = 0 ; i != coverage.size() ; ++i )
-  {
-    for ( size_t j = 0 ; j != coverage[i].size() ; ++j )
-    {
-        numer_of_covered_points[ coverage[i][j]-1 ]++;
-    }
-    //Rcerr << endl;
-  }
+  NumericVector numer_of_covered_points;
+  std::vector< std::vector< int > > points_covered_by_landmarks;
+  internal_procedure_fill_points_covered_by_landmarks( numer_of_covered_points , points_covered_by_landmarks ,  landmarks , coverage );
 
-  std::vector< std::vector< int > > points_covered_by_landmarks( landmarks.size() );
+  std::vector< double > coloring;
+  internal_procedure_fill_coloring( coloring , points_covered_by_landmarks , values ); 
+
+  std::vector< std::vector< int > > graph_incidence_matrix;
+  NumericVector from;
+  NumericVector to;
+  NumericVector strength_of_edges;
+  internal_procedure_build_graph( graph_incidence_matrix, from, to, strength_of_edges, landmarks, coverage );
+
+
+  NumericVector verts( landmarks.size() );
   for ( size_t i = 0 ; i != landmarks.size() ; ++i )
   {
-    std::vector<int> aa;
-    aa.reserve( numer_of_covered_points[i] );
-    points_covered_by_landmarks[i] = aa;
+     verts[i] = i+1;
   }
 
-  //now when the variables are initialized, we can fill in the numer_of_covered_points list:
-  for ( size_t i = 0 ; i != coverage.size() ; ++i )
-  {
-    for ( size_t j = 0 ; j != coverage[i].size() ; ++j )
+  List ret;
+  ret["vertices"] = cbind(verts,numer_of_covered_points);
+  ret["edges"] = cbind(from,to);
+  ret["strength_of_edges"] = strength_of_edges;
+  ret["points_covered_by_landmarks"] = points_covered_by_landmarks;
+  ret["landmarks"] = landmarks;
+  ret["coloring"] = coloring;
+  ret["coverage"] = coverage;
+  return ret;
+
+return 1;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//SPARSE REPRESENTATION CODE BELOW:
+std::vector< std::vector< std::pair<unsigned , double > > > transpose_points_from_R_to_sparse_vector( const DataFrame& points_df )
+{
+    std::vector< NumericVector > points_transposed( points_df.size() );
+    for ( int i = 0 ; i != points_df.size() ; ++i )
     {
-        points_covered_by_landmarks[ coverage[i][j]-1 ].push_back( i+1 );
+        points_transposed[i] = points_df[i];
     }
-  }
-  if (dbg) Rcerr << "points_covered_by_landmarks.size() : " << points_covered_by_landmarks.size() << endl;
+
+    std::vector< std::vector< std::pair<unsigned , double > > > points( points_transposed[0].size() );
+
+    size_t dim_of_points = points_transposed.size();
+    for ( int i = 0 ; i != points_transposed[0].size() ; ++i )
+    {
+        std::vector< std::pair<unsigned , double > > pt;
+        pt.reserve( dim_of_points );
+        for ( size_t j = 0 ; j != dim_of_points ; ++j )
+        {
+        	if ( points_transposed[j][i] != 0 )
+        	{        
+      		   pt.push_back( std::make_pair( j , points_transposed[j][i] ) );
+      		}
+        }
+        points[i] = pt;
+    }
+    return points;
+}
 
 
-  //now let us deal with the coloring of the vertices:
-  std::vector< double > coloring( points_covered_by_landmarks.size() , 0 );
-  for ( size_t i = 0 ; i != points_covered_by_landmarks.size() ; ++i )
+
+inline double compute_distance_standard_points_sparse_points
+  ( const std::vector< std::pair<unsigned,double> >& pt1 , const std::vector< std::pair<unsigned,double> >& pt2 , double p = 2 )
+{
+  double result = 0;
+  size_t pt1_it = 0;
+  size_t pt2_it = 0;
+  
+  while ( ( pt1_it < pt1.size() ) && ( pt2_it < pt2.size() ) )
   {
-     double av = 0;
-     for ( size_t j = 0 ; j != points_covered_by_landmarks[i].size() ; ++j )
-     {
-       av += values[ points_covered_by_landmarks[i][j]-1 ];
-     }
-     av = av / (double)points_covered_by_landmarks[i].size();
-     coloring[i] = av;
+  	if ( pt1[pt1_it].first < pt2[pt2_it].first )
+  	{
+	        //we move pt1:
+	        result += pow( ( pt1[pt1_it].second ) , p );
+		++pt1_it;  	  		  		
+	}
+	else
+	{
+		if ( pt1[pt1_it].first > pt2[pt2_it].first )
+		{
+			//we move pt1:
+	        	result += pow( ( pt2[pt2_it].second ) , p );
+			++pt2_it;  	
+		}
+		else
+		{
+			//in this case pt1[pt1_it].first == pt2[pt2_it]
+			result += pow( ( pt1[pt1_it].second - pt2[pt2_it].second ) , p );			
+			++pt1_it;
+			++pt2_it;
+		}
+	}
   }
+  
+  //if there is anything left, we count it here:
+  while ( pt1_it < pt1.size() )
+  {
+	  result += pow( ( pt1[pt1_it].second ) , p );
+	  ++pt1_it;
+  }
+  while ( pt2_it < pt2.size() )
+  {
+	result += pow( ( pt2[pt2_it].second ) , p );
+	pt2_it++;
+  }
+  
+  return pow(result,1/p);
+}//compute_distance_standard_points_sparse_points
+
+
+
+void compute_landmarks_not_transposed_pts_group_action_sparse_points
+                                         ( std::vector< std::vector<size_t> >& coverage ,
+                                           std::vector< size_t > & landmarks ,
+                                           const std::vector< std::vector< std::pair<unsigned,double> > >& points ,
+                                           const std::vector< std::vector<int> >& orbit ,
+                                           double epsilon
+                                         )
+{
+   bool dbg = false;
+
+   //here we outsource computations of landmark points:
+  size_t current_point = 0;
+  size_t current_landmark = 0;
+
+  if ( dbg )
+  {
+     Rcerr << "orbit.size() : " << orbit.size() << std::endl;
+  }
+
+  while ( true )
+  {
+      while ( (current_point != points.size()) && (coverage[current_point].size() != 0) )
+      {
+          ++current_point;
+      }
+
+      if ( dbg )Rcerr << "Current point : " << current_point << std::endl;
+
+      if ( current_point == points.size() )break;
+      for ( size_t i = 0 ; i != orbit[ current_point ].size() ; ++i )
+      {
+           if ( dbg )Rcerr << "orbit["<<current_point<<"][" << i << "] : " << orbit[ current_point ][i] << endl;
+
+  
+           landmarks.push_back( orbit[ current_point ][i]-1 );
+           for ( size_t j = 0 ; j != points.size() ; ++j )
+           {
+              if ( compute_distance_standard_points_sparse_points( points[j] , points[ orbit[ current_point ][i]-1 ] ) <= epsilon )
+              {
+                  coverage[j].push_back( current_landmark+1 );
+              }
+           }
+           current_landmark++;
+      }
+      if ( dbg )Rcerr << "Out of the internal while loop. \n";
+  }
+}
+
+
+
+
+
+/*
+//For data with some group action AND SPARSE REPRESENTATION:
+
+library(Rcpp)
+sourceCpp('BallMapper.cpp')
+
+points <- read.csv('three_shifted_bloobs_HD.csv',header=FALSE)
+values <- points[,5]
+orbit <- read.csv('orbit_three_shifted_bloobs.csv',header=FALSE)
+epsilon <- 0.2
+
+BallMapperGroupActionCpp <- function( points , values , epsilon , orbit )
+{
+  output <- SimplifiedBallMapperCppInterfaceGroupActionAndSparseRepresentation( points , values , epsilon , orbit )
+  colnames(output$vertices) = c('id','size')
+  return_list <- output
+}#BallMapperCpp
+
+bm <- BallMapperGroupActionCpp( points , values , epsilon , orbit )
+BallMapper::ColorIgraphPlot(bm)
+*/
+
+// [[Rcpp::export]]
+List SimplifiedBallMapperCppInterfaceGroupActionAndSparseRepresentation( const DataFrame& points_df , const DataFrame& values_df , double epsilon , const DataFrame& orbit_ )
+{
+  bool dbg = false                                ;
+  if ( points_df.size() == 0 )
+  {
+    Rcerr << "No points in the BallMapperCpp procedure, the program will now terminate";
+    throw "No points in the BallMapperCpp procedure, the program will now terminate";
+  }
+
+  //the points we obtain from R are unnaturally transposed, so we transpose them back to the situation when we
+  //have one point per row.
+  //First we need to store them as vector of NumericVectorS:
+
+  std::vector< std::vector< std::pair<unsigned,double> > > points = transpose_points_from_R_to_sparse_vector( points_df );
+  
+//  Rcerr << "points[0].size()  : " << points[0].size() << endl;
+
+  int number_of_points = points.size();
+  if (dbg) Rcerr << "Number of points : " << number_of_points << endl;
+
+  std::vector< std::vector<int> > orbit = transpose_points_from_R_int_version( orbit_ );
+  if (dbg) Rcerr << "orbit.size() : " << orbit.size() << endl;
+
+
+  NumericVector values = values_df[0];
+  if (dbg) Rcerr << "values.size() : " << values.size() << endl;
+
+
+  std::vector< std::vector<size_t> > coverage( number_of_points );
+  std::vector< size_t > landmarks;
+  landmarks.reserve( (size_t)(0.2*number_of_points) );
+
+
+  if (dbg) Rcerr << "Entering compute_landmarks_not_transposed_pts_group_action.\n";
+  compute_landmarks_not_transposed_pts_group_action_sparse_points( coverage , landmarks ,  points ,  orbit , epsilon );
+
+
+  if (dbg) Rcerr << "landmarks.size() : " << landmarks.size() << endl;
+  if (dbg) Rcerr << "coverage.size() : " << coverage.size() << endl;
 
   if (dbg)
   {
-    Rcerr << "Here is the coloring : \n";
-    for ( size_t i = 0 ; i != coloring.size() ; ++i )
+    Rcerr << "Here are the landmarks: \n";
+    for ( size_t i = 0 ; i != landmarks.size() ; ++i )
     {
-      Rcerr << coloring[i] << " , ";
+      Rcerr << landmarks[i] << " , ";
     }
   }
 
-  //Now let us create the graph and record the strength of each edge. To measure this, we will create the incidence matrix of the graph.
-  std::vector< std::vector< int > > graph_incidence_matrix( landmarks.size() );
-  for ( size_t i = 0 ; i != landmarks.size() ; ++i )
-  {
-    graph_incidence_matrix[i] = std::vector<int>( i );
-  }
+  NumericVector numer_of_covered_points;
+  std::vector< std::vector< int > > points_covered_by_landmarks;
+  internal_procedure_fill_points_covered_by_landmarks( numer_of_covered_points , points_covered_by_landmarks ,  landmarks , coverage );
 
+  std::vector< double > coloring;
+  internal_procedure_fill_coloring( coloring , points_covered_by_landmarks , values ); 
 
-  if (dbg) Rcerr << "coverage.size() : " << coverage.size() << endl;
+  std::vector< std::vector< int > > graph_incidence_matrix;
+  NumericVector from;
+  NumericVector to;
+  NumericVector strength_of_edges;
+  internal_procedure_build_graph( graph_incidence_matrix, from, to, strength_of_edges, landmarks, coverage );
 
-  for ( size_t i = 0 ; i < coverage.size() ; ++i )
-  {
-    for ( size_t j = 0 ; j < coverage[i].size() ; ++j )
-    {
-      for ( size_t k = j+1 ; k < coverage[i].size() ; ++k )
-      {
-        //note that the landmarks in coverage are sorted from smallest to largest
-        //therefore we only need this:
-        //Rcerr << coverage[i][k] << " " << coverage[i][j] << endl;
-        graph_incidence_matrix[ coverage[i][k]-1 ][ coverage[i][j]-1  ]++;
-      }
-    }
-  }
-
-
-  //first let us count the number of edges in the graph:
-  int number_of_edges = 0;
-  for ( size_t i = 0 ; i != graph_incidence_matrix.size() ; ++i )
-  {
-    for ( size_t j = 0 ; j != graph_incidence_matrix[i].size() ; ++j )
-    {
-       if ( graph_incidence_matrix[i][j] != 0 )++number_of_edges;
-    }
-  }
-  if (dbg)Rcerr << "Number of edges in the graph : " << number_of_edges << endl;
-
-  NumericVector from(number_of_edges);
-  NumericVector to(number_of_edges);
-  NumericVector strength_of_edges(number_of_edges);
-
-  int edg_no = 0;
-
-  for ( size_t i = 0 ; i != graph_incidence_matrix.size() ; ++i )
-  {
-    for ( size_t j = 0 ; j != graph_incidence_matrix[i].size() ; ++j )
-    {
-      if ( graph_incidence_matrix[i][j] != 0 )
-      {
-         from[edg_no] = j+1;
-         to[edg_no] = i+1;
-         strength_of_edges[edg_no] = graph_incidence_matrix[i][j];
-         ++edg_no;
-
-      }
-    }
-  }
 
   NumericVector verts( landmarks.size() );
   for ( size_t i = 0 ; i != landmarks.size() ; ++i )
