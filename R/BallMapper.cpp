@@ -997,7 +997,7 @@ BallMapper::ColorIgraphPlot(bm)
 // [[Rcpp::export]]
 List SimplifiedBallMapperCppInterfaceGroupAction( const DataFrame& points_df , const DataFrame& values_df , double epsilon , const DataFrame& orbit_ )
 {
-  bool dbg = false                                ;
+  bool dbg = false;
   if ( points_df.size() == 0 )
   {
     Rcerr << "No points in the BallMapperCpp procedure, the program will now terminate";
@@ -1392,3 +1392,164 @@ List SimplifiedBallMapperCppInterfaceGroupActionAndSparseRepresentation( const D
 
 return 1;
 }
+
+
+
+
+
+
+/*
+ library(Rcpp)
+ sourceCpp('BallMapper.cpp')
+ 
+ //pts <- as.data.frame( read.csv('points.csv',header=F) )
+ pts <- rbind( c(0,0), c(1,0), c(10,0), c(12,0), c(30,0), c(33,0) )
+ values = as.data.frame( c(1,2,3,4,5,6) )
+ //identity orbit, each element is a singleton. 
+ orbit = as.data.frame( c(1,2,3,4,5,6) )   
+ 
+ MultiScaleBallMapperGroupActionCpp <- function( points , values , epsilon , orbit )
+ {
+    output <- SimplifiedMultiScaleBallMapperCppInterfaceGroupActionAndSparseRepresentation( points , values , epsilon , orbit )
+    return_list <- output
+ }#BallMapperCpp
+ 
+ epsilon = 1
+ bm <- MultiScaleBallMapperGroupActionCpp( pts , values , epsilon , orbit )
+ BallMapper::ColorIgraphPlot(bm)
+ 
+*/
+//This is a version for multiscale ball mapper. The idea is as follows; we select a collection of landmarks on
+//some resolution level espilon. We then let the user to manipulate the epsilon to see how the set looks at 
+//different resolution levels. 
+// [[Rcpp::export]]
+List SimplifiedMultiScaleBallMapperCppInterfaceGroupActionAndSparseRepresentation( const DataFrame& points_df , const DataFrame& values_df , double epsilon , const DataFrame& orbit_ )
+{
+  bool dbg = false                                ;
+  if ( points_df.size() == 0 )
+  {
+    Rcerr << "No points in the SimplifiedMultiScaleBallMapperCppInterfaceGroupActionAndSparseRepresentation procedure, the program will now terminate";
+    throw "No points in the SimplifiedMultiScaleBallMapperCppInterfaceGroupActionAndSparseRepresentation procedure, the program will now terminate";
+  }
+
+  //the points we obtain from R are unnaturally transposed, so we transpose them back to the situation when we
+  //have one point per row.
+  //First we need to store them as vector of NumericVectorS:
+
+  std::vector< std::vector< std::pair<unsigned,double> > > points = transpose_points_from_R_to_sparse_vector( points_df );
+  
+//  Rcerr << "points[0].size()  : " << points[0].size() << endl;
+
+  int number_of_points = points.size();
+  if (dbg) Rcerr << "Number of points : " << number_of_points << endl;
+
+  std::vector< std::vector<int> > orbit = transpose_points_from_R_int_version( orbit_ );
+  if (dbg) Rcerr << "orbit.size() : " << orbit.size() << endl;
+
+
+  NumericVector values = values_df[0];
+  if (dbg) Rcerr << "values.size() : " << values.size() << endl;
+
+
+  std::vector< std::vector<size_t> > coverage( number_of_points );
+  std::vector< size_t > landmarks;
+  landmarks.reserve( (size_t)(0.2*number_of_points) );
+
+
+  if (dbg) Rcerr << "Entering compute_landmarks_not_transposed_pts_group_action.\n";
+  compute_landmarks_not_transposed_pts_group_action_sparse_points( coverage , landmarks ,  points ,  orbit , epsilon );
+
+
+  if (dbg) Rcerr << "landmarks.size() : " << landmarks.size() << endl;
+  //in this case, coverage is not useful, we will need to re-compute it here;
+  
+
+  //this is a symetric matrix of a size = number of landmarks. At a (i,j)
+  //position of this 
+  std::vector< std::vector< double > > graph_incidence_matrix( landmarks.size() );
+  for ( size_t i = 0 ; i != landmarks.size() ; ++i )graph_incidence_matrix[i] = std::vector< double >( landmarks.size() );
+  
+  //now for every landmark:
+  for ( size_t i = 0 ; i != landmarks.size() ; ++i )
+  {
+	  //and for every other landmark of a higher index:
+	  for ( size_t j = i+1 ; j != landmarks.size() ; ++j )
+	  {
+		  //for every point in the point cloud, compute its distance to landmarks[i] and landmarks[j], and pick the maximal.
+		  //Our purpose is to find a point for which this maximal distance is minimized;
+		  double max_distance = std::numeric_limits<double>::max();
+		  for ( size_t k = 0 ; k != points.size() ; ++k )
+		  {
+			  double dist_to_i = compute_distance_standard_points_sparse_points( points[k] , points[ landmarks[i] ] );
+			  double dist_to_j = compute_distance_standard_points_sparse_points( points[k] , points[ landmarks[j] ] );
+			  double max_distance_from_this_point = std::max( dist_to_i , dist_to_j );
+			  if ( max_distance_from_this_point < max_distance )max_distance = max_distance_from_this_point;
+		  }
+		  graph_incidence_matrix[i][j] = graph_incidence_matrix[j][i] = max_distance;
+	  }
+  }
+  
+  //now, for every point we need to points_in_order_from_landmarkscompute how the neigh of points evolve with radius as well as how the coloration is evolving;
+  //for every landmark:
+  std::vector< std::vector< size_t > > ( landmarks.size() );
+  std::vector< std::vector< size_t > > points_in_order_from_landmarks( landmarks.size() );
+  std::vector< std::vector< double > > distance_of_points_in_order_from_landmarks( landmarks.size() );
+  std::vector< std::vector< double > > coloration_in_order_from_landmarks( landmarks.size() );
+  
+  
+  std::vector< std::vector< std::pair<  double , size_t > > > distance_from_lands_to_points( landmarks.size() );
+  //std::vector< std::vector< std::pair< double, double > > > radius_coloration_for_all_landmarks( landmarks.size() );
+  for ( size_t i = 0 ; i != landmarks.size() ; ++i )
+  {
+	  std::vector< std::pair<  double , size_t > > distance_point_array( points.size() );
+    std::vector< double > distance_point_array_double_component( points.size() );
+    std::vector< size_t > distance_point_array_size_t_component( points.size() );
+	  //for every point:
+	  for ( size_t k = 0 ; k != points.size() ; ++k )
+	  {
+		  //compute the distance!
+		  double dist_to_landmark = compute_distance_standard_points_sparse_points( points[k] , points[ landmarks[i] ] );
+		  distance_point_array[k] = std::make_pair( dist_to_landmark , k );
+	  }
+	  //now we need to sort point_distance_array accordint to 2nd variable:
+	  std::sort( distance_point_array.begin() , distance_point_array.end() );
+	  for ( size_t aa = 0 ; aa != distance_point_array.size() ; ++aa )
+	  {
+	    distance_point_array_double_component[aa] = distance_point_array[aa].first;
+	    distance_point_array_size_t_component[aa] = distance_point_array[aa].second;
+	  }
+	  
+	  //now we should check how the coloration is evolving as a function of distance from this landmark. 
+	  std::vector< double > radius_colororation_for_this_landmark( distance_point_array.size() );
+	  double averaged = 0;
+	  for ( size_t k = 0 ; k != distance_point_array.size() ; ++k )
+	  {
+		  averaged *= k;
+		  averaged += values[ distance_point_array[ k ].second ];
+		  averaged /= (k+1);
+		  radius_colororation_for_this_landmark[k] = averaged;
+	  }
+	  points_in_order_from_landmarks[i] = distance_point_array_size_t_component;
+	  distance_of_points_in_order_from_landmarks[i] = distance_point_array_double_component;
+	  coloration_in_order_from_landmarks[i] = radius_colororation_for_this_landmark;
+  }
+  
+
+  NumericVector verts( landmarks.size() );
+  for ( size_t i = 0 ; i != landmarks.size() ; ++i )
+  {
+     verts[i] = i+1;
+  }
+
+  List ret;
+  ret["vertices"] = verts;
+  ret["landmarks"] = landmarks;
+  ret["edges"] = graph_incidence_matrix;
+  ret["points_in_order_from_landmarks"] = points_in_order_from_landmarks;
+  ret["distance_of_points_in_order_from_landmarks"] = distance_of_points_in_order_from_landmarks;
+  ret["coloration_in_order_from_landmarks"] = coloration_in_order_from_landmarks;
+  return ret;
+}
+
+
+
