@@ -1,29 +1,14 @@
-# Title of Dataset
+# Ball Mapper for Knot Theory data repository
 ---
 
-Give a brief summary of dataset contents, contextualized in experimental procedures and results.
+This repository contains all data and scripts used in Dłotko, Gurnari and Sazdanovic "Mapper--type algorithms for complex data and relations" 2023.
 
+Because of GitHub's limits on file sizes, the complete data can be found at https://cloud.impan.pl/s/XEdAp6bHPGJHnEy 
 
-## Description of the data and file structure
-
-This is a freeform section for you to describe how the data are structured and how a potential consumer might use them. Be as descriptive as necessary. Keep in mind that users of your data might be new to the field and unfamiliar with common terminology, metrics, etc.
-
-Describe relationships between data files, missing data codes, other abbreviations used. Be as descriptive as possible.
-
-
-## Sharing/Access information
-
-This is a section for linking to other ways to access the data, and for linking to sources the data is derived from, if any.
-
-Links to other publicly accessible locations of the data:
-  * 
-
-Data was derived from the following sources:
-  * 
+The datasets we consider were originally created by J.S. Levitt https://arxiv.org/abs/1912.10086 
 
 
 ## Code/Software
 
-This is an optional, freeform section for describing any code in your submission and the software used to run it.
+Scripts are provided in the form of Jupyter notebook. In addition to standard scientific packages, we use (Bokeh)[https://bokeh.org] to generate interactive plots. A standalone version of the (python Ball Mapper)[https://github.com/dgurnari/pyBallMapper] implementation is provided in the `src/` folder. 
 
-Describe any scripts, code, or notebooks (e.g., R, Python, Mathematica, MatLab) as well as the software versions (including loaded packages) that you used to run those files. If your repository contains more than one file whose relationship to other scripts is not obvious, provide information about the workflow that you used to run those scripts and notebooks.
