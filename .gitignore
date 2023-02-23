@@ -1,5 +1,5 @@
 
 .DS_Store
-.ipynb_checkpoints/graph_coloring-checkpoint.ipynb
-.Rhistory
-__pycache__/pyBallMapper_Bokeh.cpython-38.pyc
+*.ipynb_checkpoints
+*.pyc
+data/
