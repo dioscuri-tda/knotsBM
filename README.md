@@ -2,9 +2,9 @@
 
 This repository contains all data and scripts used in Dłotko, Gurnari and Sazdanovic "Mapper-type algorithms for complex data and relations".
 
-Because of GitHub's limits on file sizes, the complete data can be found on [Zenodo](https://zenodo.org/records/7670819).
-
 The datasets we consider were originally created by J.S. Levitt [2].  
+
+This repository contains the preprocessed data. Because of GitHub's limits on file sizes, the complete data, including original files from [2], can be found on [Zenodo](https://zenodo.org/records/7670819).
 
 
 ## Code/Software
